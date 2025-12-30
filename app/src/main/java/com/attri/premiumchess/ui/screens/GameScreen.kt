@@ -19,9 +19,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -38,10 +40,12 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.attri.premiumchess.domain.models.*
 import com.attri.premiumchess.ui.components.ChessPieceComposable
+import com.attri.premiumchess.ui.components.GameEndDialog
 import com.attri.premiumchess.ui.components.PlayerInfoBar
 import com.attri.premiumchess.ui.theme.*
 import com.attri.premiumchess.ui.viewmodels.AnimationState
 import com.attri.premiumchess.ui.viewmodels.GameViewModel
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,6 +69,8 @@ fun GameScreen(
     val animationState by viewModel.animationState.collectAsState()
     
     var showSettings by remember { mutableStateOf(false) }
+    var reviewMode by remember { mutableStateOf(false) }
+    var showRematchDialog by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
     val whiteCaptured = boardState.capturedPieces.filter { it.color == PieceColor.BLACK }
@@ -127,11 +133,11 @@ fun GameScreen(
                 boardState = boardState,
                 size = boardSize, // This size is now constrained and won't shrink unexpectedly
                 selectedPosition = selectedPosition,
-                legalMoves = legalMoves,
+                legalMoves = if (reviewMode) emptyList() else legalMoves,
                 hintsEnabled = hintsEnabled,
                 animationState = animationState,
-                onSquareClick = { pos -> viewModel.onSquareClicked(pos) },
-                onMove = { from, to -> viewModel.onSquareClicked(from); viewModel.onSquareClicked(to) } 
+                onSquareClick = { pos -> if (!reviewMode) viewModel.onSquareClicked(pos) },
+                onMove = { from, to -> if (!reviewMode) { viewModel.onSquareClicked(from); viewModel.onSquareClicked(to) } }
             )
         }
 
@@ -169,16 +175,66 @@ fun GameScreen(
         }
     }
 
-    if (boardState.isCheckmate || boardState.isStalemate || whiteTime <= 0 || blackTime <= 0) {
-        val winner = if (whiteTime <= 0) "Black" else if (blackTime <= 0) "White" else if (boardState.turn == PieceColor.WHITE) "Black" else "White"
-        val reason = if (whiteTime <= 0 || blackTime <= 0) "by timeout" else if (boardState.isCheckmate) "by checkmate" else "by stalemate"
-        
-        AlertDialog(
-            onDismissRequest = { /* Cannot dismiss */ },
-            title = { Text(if (boardState.isStalemate) "Draw" else "Game Over") },
-            text = { Text(if (boardState.isStalemate) "Game is a draw $reason" else "$winner wins $reason!") },
-            confirmButton = { TextButton(onClick = onExitGame) { Text("Return to Menu") } }
+    if ((boardState.isCheckmate || boardState.isStalemate || whiteTime <= 0 || blackTime <= 0) && !reviewMode) {
+        GameEndDialog(
+            boardState = boardState,
+            whiteTimeRemaining = whiteTime,
+            blackTimeRemaining = blackTime,
+            totalGameTime = config.timerSeconds,
+            player1Name = viewModel.gameConfig?.player1Name ?: "White",
+            player2Name = viewModel.gameConfig?.player2Name ?: "Black",
+            onNewGame = {
+                 showRematchDialog = true
+            },
+            onMainMenu = onExitGame,
+            onReview = { reviewMode = true }
         )
+    }
+    
+    if (showRematchDialog) {
+        AlertDialog(
+            onDismissRequest = { showRematchDialog = false },
+            title = { Text("New Game") },
+            text = { Text("Start a new game with the same players?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showRematchDialog = false
+                        viewModel.initializeGame(config)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GoldAccent)
+                ) {
+                    Text("Yes", color = Color.Black)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showRematchDialog = false
+                        onExitGame() // Return to setup/menu
+                    }
+                ) {
+                    Text("No, Change Setup")
+                }
+            }
+        )
+    }
+    
+    // Add review overlay UI if needed, or simply let user see the board
+    if (reviewMode) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(bottom = 32.dp),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+             Button(
+                onClick = onExitGame,
+                colors = ButtonDefaults.buttonColors(containerColor = GoldAccent)
+            ) {
+                Text("Exit Review", color = Color.Black)
+            }
+        }
     }
     
     if (showSettings) {
@@ -336,44 +392,87 @@ fun ChessBoard(
 
         // Render board pieces
         boardState.pieces.forEach { (position, piece) ->
-            val isAnimatingOut = animationState is AnimationState.Capture && (animationState as AnimationState.Capture).position == position
-            val isBeingDragged = draggedPiece?.first == position
-            
-            if (!isAnimatingOut) {
-                val xOffset = squareSize * position.file
-                val yOffset = squareSize * (7 - position.rank)
-                ChessPieceComposable(
-                    piece, 
-                    squareSize, 
-                    Modifier
-                        .offset(x = xOffset, y = yOffset)
-                        .pointerInput(position, piece) { // Use key to restart gesture detection for this specific piece
-                            if (piece.color != boardState.turn) return@pointerInput
-                            detectDragGestures(
-                                onDragStart = { offset -> 
-                                    onSquareClick(position) // Select piece
-                                    draggedPiece = position to piece
-                                    dragOffset = offset
-                                },
-                                onDragEnd = { 
-                                    hoverPosition?.let { onMove(position, it) }
-                                    draggedPiece = null
-                                    hoverPosition = null
-                                }
-                            ) { change, dragAmount -> 
-                                change.consume()
-                                dragOffset += dragAmount
-                                
-                                val currentX = (position.file * squareSizePx) + dragOffset.x
-                                val currentY = ((7-position.rank) * squareSizePx) + dragOffset.y
-                                
-                                val file = (currentX / squareSizePx).toInt().coerceIn(0, 7)
-                                val rank = 7 - (currentY / squareSizePx).toInt().coerceIn(0, 7)
-                                hoverPosition = Position(file, rank)
-                            }
+            key(position) {
+                val isAnimatingOut = animationState is AnimationState.Capture && (animationState as AnimationState.Capture).position == position
+                val isBeingDragged = draggedPiece?.first == position
+                
+                if (!isAnimatingOut) {
+                    val xOffset = squareSize * position.file
+                    val yOffset = squareSize * (7 - position.rank)
+                    
+                    val isLosingKing = boardState.isCheckmate && piece.type == PieceType.KING && piece.color == boardState.turn
+                    val isWinnerPiece = boardState.isCheckmate && piece.color != boardState.turn
+                    
+                    val rotation = remember { Animatable(0f) }
+                    LaunchedEffect(isLosingKing) {
+                        if (isLosingKing) {
+                            delay(200)
+                            rotation.animateTo(90f, animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow))
+                        } else {
+                            rotation.snapTo(0f)
                         }
-                        .alpha(if(isBeingDragged) 0.3f else 1f) // Ghost piece
-                )
+                    }
+                    
+                    val glowAlpha = remember { Animatable(0f) }
+                    LaunchedEffect(isWinnerPiece) {
+                        if (isWinnerPiece) {
+                            glowAlpha.animateTo(1f, animationSpec = infiniteRepeatable(tween(1000), RepeatMode.Reverse))
+                        } else {
+                            glowAlpha.snapTo(0f)
+                        }
+                    }
+
+                    if (isWinnerPiece) {
+                        Box(
+                            modifier = Modifier
+                                .offset(x = xOffset, y = yOffset)
+                                .size(squareSize)
+                                .alpha(glowAlpha.value)
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(GoldAccent.copy(alpha = 0.6f), Color.Transparent),
+                                        center = Offset.Unspecified,
+                                        radius = Float.POSITIVE_INFINITY
+                                    ), 
+                                    CircleShape
+                                )
+                        )
+                    }
+
+                    ChessPieceComposable(
+                        piece, 
+                        squareSize, 
+                        Modifier
+                            .offset(x = xOffset, y = yOffset)
+                            .rotate(rotation.value)
+                            .pointerInput(position, piece) { // Use key to restart gesture detection for this specific piece
+                                if (piece.color != boardState.turn) return@pointerInput
+                                detectDragGestures(
+                                    onDragStart = { offset -> 
+                                        onSquareClick(position) // Select piece
+                                        draggedPiece = position to piece
+                                        dragOffset = offset
+                                    },
+                                    onDragEnd = { 
+                                        hoverPosition?.let { onMove(position, it) }
+                                        draggedPiece = null
+                                        hoverPosition = null
+                                    }
+                                ) { change, dragAmount -> 
+                                    change.consume()
+                                    dragOffset += dragAmount
+                                    
+                                    val currentX = (position.file * squareSizePx) + dragOffset.x
+                                    val currentY = ((7-position.rank) * squareSizePx) + dragOffset.y
+                                    
+                                    val file = (currentX / squareSizePx).toInt().coerceIn(0, 7)
+                                    val rank = 7 - (currentY / squareSizePx).toInt().coerceIn(0, 7)
+                                    hoverPosition = Position(file, rank)
+                                }
+                            }
+                            .alpha(if(isBeingDragged) 0.3f else 1f) // Ghost piece
+                    )
+                }
             }
         }
 

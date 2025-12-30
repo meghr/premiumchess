@@ -13,6 +13,7 @@ class SoundManager(private val context: Context) {
     private var castleSoundId: Int = 0
     private var illegalSoundId: Int = 0
     private var timerNotifySoundId: Int = 0
+    private var stalemateSoundId: Int = 0
 
     private var isSoundEnabled: Boolean = true
 
@@ -38,6 +39,7 @@ class SoundManager(private val context: Context) {
         castleSoundId = loadSound("castle_sound")
         illegalSoundId = loadSound("illegal_sound")
         timerNotifySoundId = loadSound("timer_notify")
+        stalemateSoundId = loadSound("stalemate_sound")
     }
 
     private fun loadSound(name: String): Int {
@@ -60,6 +62,7 @@ class SoundManager(private val context: Context) {
     fun playCastle() = playSound(castleSoundId)
     fun playIllegal() = playSound(illegalSoundId)
     fun playTimerNotify() = playSound(timerNotifySoundId)
+    fun playStalemate() = playSound(stalemateSoundId)
 
     private fun playSound(soundId: Int) {
         if (!isSoundEnabled || soundId == 0) return

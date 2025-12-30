@@ -123,7 +123,12 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         playSoundForMove(move, newState)
         _boardState.value = newState
         resetSelection()
-        startTimer()
+        
+        if (newState.isCheckmate || newState.isStalemate || newState.isDraw) {
+            timerJob?.cancel()
+        } else {
+            startTimer()
+        }
     }
     
     private fun startTimer() {
@@ -142,6 +147,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     
                     if (newTime <= 0) {
+                        soundManager.playIllegal() // Play sound on timeout
                         timerJob?.cancel()
                         break
                     }
@@ -154,6 +160,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     }
                     
                     if (newTime <= 0) {
+                        soundManager.playIllegal() // Play sound on timeout
                         timerJob?.cancel()
                         break
                     }
@@ -165,6 +172,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private fun playSoundForMove(move: Move, newState: BoardState) {
         when {
             newState.isCheckmate -> soundManager.playCheckmate()
+            newState.isStalemate -> soundManager.playStalemate()
             newState.isCheck -> soundManager.playCheck()
             move.moveType == MoveType.CASTLE_KINGSIDE || move.moveType == MoveType.CASTLE_QUEENSIDE -> soundManager.playCastle()
             move.capturedPiece != null || move.moveType == MoveType.EN_PASSANT -> soundManager.playCapture()
