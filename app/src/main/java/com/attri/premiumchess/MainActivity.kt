@@ -36,7 +36,7 @@ class MainActivity : ComponentActivity() {
                 val viewModel: MainViewModel = viewModel()
                 val screenState by viewModel.currentScreen.collectAsState()
 
-                when (screenState) {
+                when (val state = screenState) {
                     is MainViewModel.ScreenState.Splash -> {
                         SplashScreen {
                             viewModel.onSplashFinished()
@@ -54,9 +54,10 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                     is MainViewModel.ScreenState.Game -> {
-                        GameScreen {
-                            viewModel.onBackToMenu()
-                        }
+                        GameScreen(
+                            onExitGame = { viewModel.onBackToMenu() },
+                            config = state.config
+                        )
                     }
                 }
             }

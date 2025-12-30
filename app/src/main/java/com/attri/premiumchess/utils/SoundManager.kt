@@ -3,7 +3,6 @@ package com.attri.premiumchess.utils
 import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
-import android.util.Log
 
 class SoundManager(private val context: Context) {
     private var soundPool: SoundPool? = null
@@ -13,7 +12,8 @@ class SoundManager(private val context: Context) {
     private var checkmateSoundId: Int = 0
     private var castleSoundId: Int = 0
     private var illegalSoundId: Int = 0
-    
+    private var timerNotifySoundId: Int = 0
+
     private var isSoundEnabled: Boolean = true
 
     init {
@@ -31,17 +31,13 @@ class SoundManager(private val context: Context) {
     }
 
     private fun loadSounds() {
-        // Note: Using 0 as placeholder since raw resources don't exist yet.
-        // User needs to add: move.wav, capture.wav, check.wav, checkmate.wav, castle.wav, illegal.wav to res/raw/
-        // To prevent crash/build error, we check for existence or just use placeholders.
-        // For this implementation, we will try to load by identifier, or fail silently.
-        
         moveSoundId = loadSound("move_sound")
         captureSoundId = loadSound("capture_sound")
         checkSoundId = loadSound("check_sound")
         checkmateSoundId = loadSound("checkmate_sound")
         castleSoundId = loadSound("castle_sound")
         illegalSoundId = loadSound("illegal_sound")
+        timerNotifySoundId = loadSound("timer_notify")
     }
 
     private fun loadSound(name: String): Int {
@@ -57,29 +53,13 @@ class SoundManager(private val context: Context) {
         isSoundEnabled = enabled
     }
 
-    fun playMove() {
-        playSound(moveSoundId)
-    }
-
-    fun playCapture() {
-        playSound(captureSoundId)
-    }
-
-    fun playCheck() {
-        playSound(checkSoundId)
-    }
-
-    fun playCheckmate() {
-        playSound(checkmateSoundId)
-    }
-
-    fun playCastle() {
-        playSound(castleSoundId)
-    }
-    
-    fun playIllegal() {
-        playSound(illegalSoundId)
-    }
+    fun playMove() = playSound(moveSoundId)
+    fun playCapture() = playSound(captureSoundId)
+    fun playCheck() = playSound(checkSoundId)
+    fun playCheckmate() = playSound(checkmateSoundId)
+    fun playCastle() = playSound(castleSoundId)
+    fun playIllegal() = playSound(illegalSoundId)
+    fun playTimerNotify() = playSound(timerNotifySoundId)
 
     private fun playSound(soundId: Int) {
         if (!isSoundEnabled || soundId == 0) return

@@ -4,20 +4,15 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.attri.premiumchess.domain.logic.GameEngine
-import com.attri.premiumchess.domain.models.BoardState
-import com.attri.premiumchess.domain.models.ChessPiece
-import com.attri.premiumchess.domain.models.GameConfig
-import com.attri.premiumchess.domain.models.Move
-import com.attri.premiumchess.domain.models.MoveType
-import com.attri.premiumchess.domain.models.Position
+import com.attri.premiumchess.domain.models.*
 import com.attri.premiumchess.utils.SoundManager
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// Sealed class to represent the animation state
 sealed class AnimationState {
     object None : AnimationState()
     data class Capture(val piece: ChessPiece, val position: Position) : AnimationState()
@@ -26,9 +21,16 @@ sealed class AnimationState {
 class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private val soundManager = SoundManager(application)
+    private var timerJob: Job? = null
 
     private val _boardState = MutableStateFlow(BoardState.initial())
     val boardState: StateFlow<BoardState> = _boardState.asStateFlow()
+
+    private val _whiteTime = MutableStateFlow(600L)
+    val whiteTime: StateFlow<Long> = _whiteTime.asStateFlow()
+
+    private val _blackTime = MutableStateFlow(600L)
+    val blackTime: StateFlow<Long> = _blackTime.asStateFlow()
 
     private val _selectedPosition = MutableStateFlow<Position?>(null)
     val selectedPosition: StateFlow<Position?> = _selectedPosition.asStateFlow()
@@ -56,12 +58,16 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     override fun onCleared() {
         super.onCleared()
         soundManager.release()
+        timerJob?.cancel()
     }
 
     fun initializeGame(config: GameConfig) {
         this.gameConfig = config
         _boardState.value = BoardState.initial()
+        _whiteTime.value = config.timerSeconds
+        _blackTime.value = config.timerSeconds
         resetSelection()
+        startTimer()
     }
     
     fun toggleHints() {
@@ -85,22 +91,18 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 val isCapture = currentState.pieces[move.to] != null || move.moveType == MoveType.EN_PASSANT
                 
                 if (isCapture) {
-                    // Start capture animation
                     viewModelScope.launch {
                         isAnimating = true
                         val capturedPiece = currentState.pieces[move.to]
                         if (capturedPiece != null) {
                             _animationState.value = AnimationState.Capture(capturedPiece, move.to)
-                            delay(300) // Duration of slide-off animation
+                            delay(300)
                         }
-                        
-                        // After animation, commit the move
                         commitMove(currentState, move)
                         _animationState.value = AnimationState.None
                         isAnimating = false
                     }
                 } else {
-                    // If not a capture, commit immediately
                     commitMove(currentState, move)
                 }
                 return
@@ -121,6 +123,43 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         playSoundForMove(move, newState)
         _boardState.value = newState
         resetSelection()
+        startTimer()
+    }
+    
+    private fun startTimer() {
+        timerJob?.cancel()
+        if (gameConfig?.timerSeconds == GameConfig.NO_TIMER) return
+
+        timerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                if (_boardState.value.turn == PieceColor.WHITE) {
+                    val newTime = _whiteTime.value - 1
+                    _whiteTime.value = newTime
+                    
+                    if (newTime == 30L || newTime == 10L) {
+                        soundManager.playTimerNotify()
+                    }
+                    
+                    if (newTime <= 0) {
+                        timerJob?.cancel()
+                        break
+                    }
+                } else {
+                    val newTime = _blackTime.value - 1
+                    _blackTime.value = newTime
+                    
+                    if (newTime == 30L || newTime == 10L) {
+                        soundManager.playTimerNotify()
+                    }
+                    
+                    if (newTime <= 0) {
+                        timerJob?.cancel()
+                        break
+                    }
+                }
+            }
+        }
     }
     
     private fun playSoundForMove(move: Move, newState: BoardState) {

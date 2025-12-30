@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.attri.premiumchess.domain.models.*
 import com.attri.premiumchess.ui.components.ChessPieceComposable
+import com.attri.premiumchess.ui.components.PlayerInfoBar
 import com.attri.premiumchess.ui.theme.*
 import com.attri.premiumchess.ui.viewmodels.AnimationState
 import com.attri.premiumchess.ui.viewmodels.GameViewModel
@@ -47,9 +48,16 @@ import kotlin.math.roundToInt
 @Composable
 fun GameScreen(
     viewModel: GameViewModel = viewModel(),
-    onExitGame: () -> Unit
+    onExitGame: () -> Unit,
+    config: GameConfig
 ) {
+    LaunchedEffect(key1 = config) {
+        viewModel.initializeGame(config)
+    }
+
     val boardState by viewModel.boardState.collectAsState()
+    val whiteTime by viewModel.whiteTime.collectAsState()
+    val blackTime by viewModel.blackTime.collectAsState()
     val selectedPosition by viewModel.selectedPosition.collectAsState()
     val legalMoves by viewModel.legalMoves.collectAsState()
     val hintsEnabled by viewModel.hintsEnabled.collectAsState()
@@ -59,79 +67,148 @@ fun GameScreen(
     var showSettings by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState()
 
-    Box(
+    val whiteCaptured = boardState.capturedPieces.filter { it.color == PieceColor.BLACK }
+    val blackCaptured = boardState.capturedPieces.filter { it.color == PieceColor.WHITE }
+
+    val whiteAdvantage = blackCaptured.sumOf { getPieceValue(it.type) } - whiteCaptured.sumOf { getPieceValue(it.type) }
+    val blackAdvantage = whiteAdvantage * -1
+
+    // Main layout: Row with 3 columns (Left Sidebar, Center Board, Right Sidebar)
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(BlackBackground)
     ) {
-        Row(
-            modifier = Modifier.fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically
+        // Left Sidebar (20%)
+        Column(
+            modifier = Modifier
+                .weight(0.2f)
+                .fillMaxHeight()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // Left sidebar (Black's captured pieces)
-            Column(modifier = Modifier.weight(0.15f).fillMaxHeight()) {
-                CapturedPiecesBar(
-                    modifier = Modifier.weight(1f),
-                    pieces = boardState.capturedPieces.filter { it.color == PieceColor.BLACK }
-                )
-                 Button(onClick = onExitGame, colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = GoldAccent)) {
-                    Text("EXIT")
+            // White Player Info (Top Left)
+            PlayerInfoBar(
+                playerName = viewModel.gameConfig?.player1Name ?: "Player 1",
+                playerColor = PieceColor.WHITE,
+                timeSeconds = whiteTime,
+                isMyTurn = boardState.turn == PieceColor.WHITE
+            )
+            
+            // White Captured Pieces & Advantage
+            Column(modifier = Modifier.weight(1f)) {
+                if (whiteAdvantage > 0) {
+                    Text("+$whiteAdvantage", color = Color.Green, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp))
                 }
+                CapturedPiecesBar(modifier = Modifier.fillMaxSize(), pieces = whiteCaptured)
             }
 
-            // Center Board Area
-            BoxWithConstraints(
-                modifier = Modifier
-                    .weight(0.7f) 
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center
+            // Exit Button (Bottom Left)
+            Button(
+                onClick = onExitGame,
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent, contentColor = GoldAccent),
+                modifier = Modifier.align(Alignment.Start)
             ) {
-                val boardSize = minOf(maxHeight, maxWidth)
-                
-                ChessBoard(
-                    boardState = boardState,
-                    size = boardSize,
-                    selectedPosition = selectedPosition,
-                    legalMoves = legalMoves,
-                    hintsEnabled = hintsEnabled,
-                    animationState = animationState,
-                    onSquareClick = { pos -> viewModel.onSquareClicked(pos) },
-                    onMove = { from, to -> viewModel.onSquareClicked(from); viewModel.onSquareClicked(to) } // Simplified, viewmodel handles logic
-                )
-            }
-
-            // Right sidebar (White's captured pieces)
-            Column(modifier = Modifier.weight(0.15f).fillMaxHeight()) {
-                CapturedPiecesBar(
-                    modifier = Modifier.weight(1f),
-                    pieces = boardState.capturedPieces.filter { it.color == PieceColor.WHITE }
-                )
-                 IconButton(onClick = { showSettings = true }) {
-                    Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = GoldAccent)
-                }
+                Text("EXIT")
             }
         }
+
+        // Center Board (60%)
+        BoxWithConstraints(
+            modifier = Modifier
+                .weight(0.6f)
+                .fillMaxHeight(),
+            contentAlignment = Alignment.Center
+        ) {
+            // Calculate max square size based on available space
+            val boardSize = minOf(maxHeight, maxWidth)
+            
+            ChessBoard(
+                boardState = boardState,
+                size = boardSize, // This size is now constrained and won't shrink unexpectedly
+                selectedPosition = selectedPosition,
+                legalMoves = legalMoves,
+                hintsEnabled = hintsEnabled,
+                animationState = animationState,
+                onSquareClick = { pos -> viewModel.onSquareClicked(pos) },
+                onMove = { from, to -> viewModel.onSquareClicked(from); viewModel.onSquareClicked(to) } 
+            )
+        }
+
+        // Right Sidebar (20%)
+        Column(
+            modifier = Modifier
+                .weight(0.2f)
+                .fillMaxHeight()
+                .padding(8.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Black Player Info (Top Right)
+            PlayerInfoBar(
+                playerName = viewModel.gameConfig?.player2Name ?: "Player 2",
+                playerColor = PieceColor.BLACK,
+                timeSeconds = blackTime,
+                isMyTurn = boardState.turn == PieceColor.BLACK
+            )
+            
+            // Black Captured Pieces & Advantage
+            Column(modifier = Modifier.weight(1f)) {
+                if (blackAdvantage > 0) {
+                    Text("+$blackAdvantage", color = Color.Green, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 16.dp))
+                }
+                CapturedPiecesBar(modifier = Modifier.fillMaxSize(), pieces = blackCaptured)
+            }
+
+            // Settings Button (Bottom Right)
+            IconButton(
+                onClick = { showSettings = true },
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Icon(imageVector = Icons.Default.Settings, contentDescription = "Settings", tint = GoldAccent)
+            }
+        }
+    }
+
+    if (boardState.isCheckmate || boardState.isStalemate || whiteTime <= 0 || blackTime <= 0) {
+        val winner = if (whiteTime <= 0) "Black" else if (blackTime <= 0) "White" else if (boardState.turn == PieceColor.WHITE) "Black" else "White"
+        val reason = if (whiteTime <= 0 || blackTime <= 0) "by timeout" else if (boardState.isCheckmate) "by checkmate" else "by stalemate"
         
-        // Settings Sheet
-        if (showSettings) {
-            ModalBottomSheet(
-                onDismissRequest = { showSettings = false },
-                sheetState = sheetState
-            ) {
-                 Column(modifier = Modifier.padding(24.dp).navigationBarsPadding()) {
-                    Text("Game Settings", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(Modifier.height(16.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Move Hints")
-                        Switch(checked = hintsEnabled, onCheckedChange = { viewModel.toggleHints() })
-                    }
-                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text("Sound Effects")
-                        Switch(checked = soundEnabled, onCheckedChange = { viewModel.toggleSound() })
-                    }
-                 }
-            }
+        AlertDialog(
+            onDismissRequest = { /* Cannot dismiss */ },
+            title = { Text(if (boardState.isStalemate) "Draw" else "Game Over") },
+            text = { Text(if (boardState.isStalemate) "Game is a draw $reason" else "$winner wins $reason!") },
+            confirmButton = { TextButton(onClick = onExitGame) { Text("Return to Menu") } }
+        )
+    }
+    
+    if (showSettings) {
+        ModalBottomSheet(
+            onDismissRequest = { showSettings = false },
+            sheetState = sheetState
+        ) {
+             Column(modifier = Modifier.padding(24.dp).navigationBarsPadding()) {
+                Text("Game Settings", style = MaterialTheme.typography.headlineSmall)
+                Spacer(Modifier.height(16.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Move Hints")
+                    Switch(checked = hintsEnabled, onCheckedChange = { viewModel.toggleHints() })
+                }
+                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Sound Effects")
+                    Switch(checked = soundEnabled, onCheckedChange = { viewModel.toggleSound() })
+                }
+             }
         }
+    }
+}
+
+fun getPieceValue(type: PieceType): Int {
+    return when (type) {
+        PieceType.PAWN -> 1
+        PieceType.KNIGHT, PieceType.BISHOP -> 3
+        PieceType.ROOK -> 5
+        PieceType.QUEEN -> 9
+        PieceType.KING -> 0
     }
 }
 
